@@ -8,26 +8,22 @@ from dataclasses import dataclass
 load_dotenv()
 
 LIMIT = 2
+NUMBER_OF_COMMENTS = 2
 REDDIT_CLIENT_ID = os.getenv("REDDIT_CLIENT_ID")
 REDDIT_CLIENT_SECRET = os.getenv("REDDIT_CLIENT_SECRET")
 REDDIT_USER_AGENT = os.getenv("REDDIT_USER_AGENT")
 
 
 @dataclass
-class RedditComments:
-    author: str
-    score: int
-    body: str
-
-
-@dataclass
 class SocialMediaData:
-    title: Optional[str]
+    # id: str  # Unique identifier
+    type: str  # "post" or "comment"
+    title: Optional[str]  # Will be None for comments
     url: str
     author: str
-    content: str
+    content: str  # selftext for posts, body for comments
     date: datetime
-    comment: list[RedditComments]
+    parent_id: Optional[str]  # Will be None for posts, post_id for comments
 
 
 def extract_reddit_posts(
@@ -36,7 +32,7 @@ def extract_reddit_posts(
     sort: str = "relevance",
     syntax: str = "lucene",
     time_filter: str = "all",
-    number_of_comments: int = 5,
+    number_of_comments: int = NUMBER_OF_COMMENTS,
 ) -> list[SocialMediaData]:
     """
     Fetch posts from Reddit based on the given query and parameters.
@@ -55,39 +51,50 @@ def extract_reddit_posts(
         user_agent=REDDIT_USER_AGENT,
     )
 
-    posts = []
+    items = []
     for submission in reddit.subreddit(subreddit).search(
         query=query, sort=sort, syntax=syntax, time_filter=time_filter, limit=LIMIT
     ):
-        # Get top-level comments
-        submission.comments.replace_more(limit=0)  # Remove MoreComments objects
-        comments = []
-        for comment in submission.comments[:number_of_comments]:
-            comments.append(
-                RedditComments(
-                    body=comment.body, score=comment.score, author=str(comment.author)
-                )
-            )
-
-        posts.append(
+        # Add the post
+        items.append(
             SocialMediaData(
+                # id=submission.id,
+                type="post",
                 title=submission.title,
                 url=submission.url,
                 author=str(submission.author),
                 content=submission.selftext,
                 date=datetime.fromtimestamp(submission.created_utc),
-                comment=comments,
+                parent_id=None,
             )
         )
 
-    return posts
+        # Add the comments
+        submission.comments.replace_more(limit=0)
+        for comment in submission.comments[:number_of_comments]:
+            items.append(
+                SocialMediaData(
+                    # id=comment.id,
+                    type="comment",
+                    title=None,
+                    url=f"https://reddit.com{comment.permalink}",
+                    author=str(comment.author),
+                    content=comment.body,
+                    date=datetime.fromtimestamp(comment.created_utc),
+                    parent_id=submission.id,
+                )
+            )
+
+    return items
 
 
-reddit_posts = extract_reddit_posts(query="test")
+reddit_posts = extract_reddit_posts(query="Software Engineers")
 # print(reddit_posts)
 
 for post in reddit_posts:
     print(post.content)
     print(post.title)
-    for comment in post.comment:
-        print(comment.body)
+    print(post.type)
+    print(post.url)
+    print(post.author)
+    print(post.parent_id)
